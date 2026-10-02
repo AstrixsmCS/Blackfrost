@@ -1,5 +1,7 @@
 #pragma once
 
+#define BIT(x) (1u << (x))
+
 // ==== Platform Detection ====
 
 #if defined(_WIN64) || defined(_WIN32)

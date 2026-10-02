@@ -1,8 +1,5 @@
 #include "Application.hpp"
 
-#include "Log.hpp"
-#include "Version.hpp"
-
 #include "Events/EventBus.hpp"
 
 #include "Input.hpp"

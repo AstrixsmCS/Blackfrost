@@ -1,7 +1,5 @@
 #include "Window.hpp"
 
-#include "Log.hpp"
-
 #include "Events/ApplicationEvent.hpp"
 #include "Events/EventBus.hpp"
 #include "Events/KeyEvent.hpp"

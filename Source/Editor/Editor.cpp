@@ -1,8 +1,5 @@
 #include "Editor.hpp"
 
-#include "Core/Version.hpp"
-#include <Core/Log.hpp>
-
 #include <format>
 
 EditorApplication::EditorApplication(const ApplicationSpecification& specification)
