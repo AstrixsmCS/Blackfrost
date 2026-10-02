@@ -4,9 +4,11 @@
 
 #include "Input.hpp"
 
+#include "Renderer/Renderer.hpp"
+
 Application* Application::s_Instance = nullptr;
 
-Application::Application(const ApplicationSpecification& specification)
+Application::Application(const ApplicationSpecification &specification)
 	: m_Specification(specification)
 {
 	s_Instance = this;
@@ -22,18 +24,11 @@ Application::Application(const ApplicationSpecification& specification)
 	if (m_Specification.Window.Mode == WindowMode::Windowed)
 		m_Window->CenterWindow();
 
-	EventBus::Subscribe<WindowResizeEvent>([this](WindowResizeEvent& e)
-	{
-		e.m_Handled |= OnWindowResize(e);
-	});
-	EventBus::Subscribe<WindowMinimizeEvent>([this](WindowMinimizeEvent& e)
-	{
-		e.m_Handled |= OnWindowMinimize(e);
-	});
-	EventBus::Subscribe<WindowCloseEvent>([this](WindowCloseEvent& e)
-	{
-		e.m_Handled |= OnWindowClose(e);
-	});
+	Renderer::Initialize(m_Window->GetNativeWindow());
+
+	EventBus::Subscribe<WindowResizeEvent>([this](WindowResizeEvent& e){ e.m_Handled |= OnWindowResize(e); });
+	EventBus::Subscribe<WindowMinimizeEvent>([this](WindowMinimizeEvent& e) { e.m_Handled |= OnWindowMinimize(e); });
+	EventBus::Subscribe<WindowCloseEvent>([this](WindowCloseEvent& e) { e.m_Handled |= OnWindowClose(e); });
 }
 
 Application::~Application()
@@ -41,6 +36,8 @@ Application::~Application()
 	BF_TRACE("Shutting down...");
 
 	EventBus::Clear();
+
+	Renderer::Shutdown();
 
 	m_Window.reset();
 
@@ -64,9 +61,12 @@ void Application::Run()
 
 		ProcessEvents();
 
-		if (!m_Minimized)
+		if (!m_Minimized && Renderer::BeginFrame())
 		{
 			OnUpdate(m_TimeStep);
+
+			Renderer::EndFrame();
+			Renderer::Present();
 		}
 		// BF_INFO("Frame time: {:.4f}ms | Timestep: {:.4f}ms | FPS: {:.1f}", m_Frametime * 1000.0f, m_TimeStep * 1000.0f, 1.0f / m_Frametime);
 	}
@@ -91,6 +91,8 @@ bool Application::OnWindowResize(WindowResizeEvent& e)
 {
 	if (e.GetWidth() == 0 || e.GetHeight() == 0)
 		return false;
+
+	Renderer::GetSwapChain().RequestResize();
 
 	return false;
 }
