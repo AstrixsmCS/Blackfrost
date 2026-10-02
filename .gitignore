@@ -1,0 +1,24 @@
+# Build Output
+/build*/
+!/BuildSystem/
+**/bin/
+bin-int/
+obj/
+Intermediates/
+Binaries
+
+# Executables
+*.exe
+
+# IDE Files
+.vs/
+out/
+.vscode/
+.idea/
+*.sln
+*.vcxproj*
+*.user
+
+# LFS Folders
+lfs/
+hooks/

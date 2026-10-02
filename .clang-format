@@ -1,0 +1,60 @@
+---
+Language: Cpp
+BasedOnStyle: LLVM
+Standard: Latest
+
+# Indentation tabs for indentation, spaces for alignment
+UseTab: ForContinuationAndIndentation
+IndentWidth: 4
+TabWidth: 4
+ContinuationIndentWidth: 4
+AccessModifierOffset: -4
+IndentCaseLabels: true
+NamespaceIndentation: All
+
+# Allman braces everywhere: classes, structs, enums, control flow, lambdas
+BreakBeforeBraces: Allman
+AllowShortBlocksOnASingleLine: Never
+AllowShortFunctionsOnASingleLine: InlineOnly
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortLambdasOnASingleLine: Empty
+LambdaBodyIndentation: OuterScope
+BreakTemplateDeclarations: Yes
+BreakConstructorInitializers: BeforeColon
+
+ColumnLimit: 0
+
+AlignConsecutiveAssignments:
+  Enabled: true
+  AcrossEmptyLines: false
+  AcrossComments: false
+AlignConsecutiveDeclarations:
+  Enabled: true
+  AcrossEmptyLines: false
+  AcrossComments: false
+AlignConsecutiveMacros:
+  Enabled: true
+AlignTrailingComments:
+  Kind: Always
+AlignOperands: Align
+
+PointerAlignment: Left
+ReferenceAlignment: Left
+
+Cpp11BracedListStyle: false
+
+# Includes keep the hand-made groups (own header, engine, Third party, STL), sort within each
+SortIncludes: CaseSensitive
+IncludeBlocks: Preserve
+
+SpaceBeforeParens: ControlStatements
+SpaceAfterCStyleCast: false
+SpaceAfterTemplateKeyword: false
+EmptyLineBeforeAccessModifier: LogicalBlock
+KeepEmptyLines:
+  AtStartOfBlock: false
+MaxEmptyLinesToKeep: 2
+InsertNewlineAtEOF: true
+...
