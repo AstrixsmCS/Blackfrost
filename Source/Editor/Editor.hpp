@@ -2,6 +2,14 @@
 
 #include "Core/Application.hpp"
 
+#include "Renderer/Camera.hpp"
+
+#include "Renderer/Mesh.hpp"
+#include "Renderer/SceneEnvironment.hpp"
+#include "Renderer/SceneRenderer.hpp"
+
+#include <memory>
+
 class EditorApplication final : public Application
 {
 public:
@@ -15,4 +23,11 @@ protected:
 
 private:
 	void UpdateWindowTitle();
+
+private:
+	std::unique_ptr<SceneRenderer> m_SceneRenderer;
+
+	Camera           m_Camera;
+	Mesh             m_Mesh;
+	LightEnvironment m_Lights;
 };

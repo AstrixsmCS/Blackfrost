@@ -4,6 +4,8 @@
 #include "Vulkan/Descriptors.hpp"
 #include "Vulkan/Shader.hpp"
 
+#include "MaterialSystem.hpp"
+
 #include <algorithm>
 #include <array>
 #include <format>
@@ -20,8 +22,8 @@ void Renderer::Initialize(SDL_Window *windowHandle)
 	s_Data = new RendererData;
 
 	Context::Initialize();
-
 	Descriptor::Initialize();
+	MaterialSystem::Initialize();
 
 	s_SwapChain = std::make_unique<SwapChain>(windowHandle);
 	s_SwapChain->Initialize();
@@ -31,6 +33,11 @@ void Renderer::Initialize(SDL_Window *windowHandle)
 	// ==== Shaders ====
 
 	ShaderLibrary &shaders = Renderer::GetShaderLibrary();
+
+	shaders.Load("Assets/Shaders/Mesh.slang");
+	shaders.Load("Assets/Shaders/Lighting.slang");
+	shaders.Load("Assets/Shaders/Tonemap.slang");
+	shaders.Load("Assets/Shaders/Composite.slang");
 }
 
 void Renderer::Shutdown()
@@ -42,6 +49,7 @@ void Renderer::Shutdown()
 	s_FrameData.Shutdown();
 	s_SwapChain.reset();
 
+	MaterialSystem::Shutdown();
 	Descriptor::Shutdown();
 
 	Context::Shutdown();

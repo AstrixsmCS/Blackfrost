@@ -55,6 +55,8 @@ namespace
 			{ slang::CompilerOptionValueKind::Int, debugInfoLevel, 0, nullptr, nullptr } },
 			{ slang::CompilerOptionName::Optimization,
 			{ slang::CompilerOptionValueKind::Int, optimizationLevel, 0, nullptr, nullptr } },
+			{ slang::CompilerOptionName::GLSLForceScalarLayout,
+			{ slang::CompilerOptionValueKind::Int, 1, 0, nullptr, nullptr } },
 			{slang::CompilerOptionName::DisableWarning,
 			{ slang::CompilerOptionValueKind::String, 0, 0, "39001", nullptr } }
 		};

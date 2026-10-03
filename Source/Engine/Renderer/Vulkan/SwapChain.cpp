@@ -380,8 +380,8 @@ void SwapChain::FindImageFormatAndColorSpace()
 	};
 
 	constexpr PreferredFormat preferredFormats[] = {
-		{ VK_FORMAT_B8G8R8A8_SRGB, Format::BGRA8_SRGB },
-		{ VK_FORMAT_R8G8B8A8_SRGB, Format::RGBA8_SRGB },
+		{ VK_FORMAT_B8G8R8A8_UNORM, Format::BGRA8_UNorm },
+		{ VK_FORMAT_R8G8B8A8_UNORM, Format::RGBA8_UNorm },
 	};
 
 	for (const auto& preferred : preferredFormats)
@@ -400,7 +400,7 @@ void SwapChain::FindImageFormatAndColorSpace()
 			m_Format      = preferred.RendererFormat;
 			m_ColorSpace  = available.colorSpace;
 
-			std::println("[SwapChain] Format: {}, Color space: VK_COLOR_SPACE_SRGB_NONLINEAR_KHR", m_ColorFormat == VK_FORMAT_B8G8R8A8_SRGB ? "VK_FORMAT_B8G8R8A8_SRGB" : "VK_FORMAT_R8G8B8A8_SRGB");
+			std::println("[SwapChain] Format: {}, Color space: VK_COLOR_SPACE_SRGB_NONLINEAR_KHR", m_ColorFormat == VK_FORMAT_B8G8R8A8_UNORM ? "VK_FORMAT_B8G8R8A8_UNORM" : "VK_FORMAT_R8G8B8A8_UNORM");
 			return;
 		}
 	}
