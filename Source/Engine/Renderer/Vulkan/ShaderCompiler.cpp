@@ -1,7 +1,5 @@
 #include "ShaderCompiler.hpp"
 
-#include "VulkanUtils.hpp"
-
 #include <slang/slang-com-ptr.h>
 #include <slang/slang.h>
 
@@ -57,7 +55,7 @@ namespace
 			{ slang::CompilerOptionValueKind::Int, optimizationLevel, 0, nullptr, nullptr } },
 			{ slang::CompilerOptionName::GLSLForceScalarLayout,
 			{ slang::CompilerOptionValueKind::Int, 1, 0, nullptr, nullptr } },
-			{slang::CompilerOptionName::DisableWarning,
+			{ slang::CompilerOptionName::DisableWarning,
 			{ slang::CompilerOptionValueKind::String, 0, 0, "39001", nullptr } }
 		};
 
@@ -103,22 +101,23 @@ namespace
 		return { words, words + wordCount };
 	}
 
-	ShaderStage FromSlangStage(SlangStage stage)
+	// Returns 0 for stages Vulkan has no equivalent for.
+	VkShaderStageFlagBits FromSlangStage(SlangStage stage)
 	{
 		switch (stage)
 		{
-			case SLANG_STAGE_VERTEX: return ShaderStage::Vertex;
-			case SLANG_STAGE_FRAGMENT: return ShaderStage::Fragment;
-			case SLANG_STAGE_COMPUTE: return ShaderStage::Compute;
-			case SLANG_STAGE_RAY_GENERATION: return ShaderStage::RayGen;
-			case SLANG_STAGE_MISS: return ShaderStage::Miss;
-			case SLANG_STAGE_CLOSEST_HIT: return ShaderStage::ClosestHit;
-			case SLANG_STAGE_ANY_HIT: return ShaderStage::AnyHit;
-			case SLANG_STAGE_INTERSECTION: return ShaderStage::Intersection;
-			case SLANG_STAGE_CALLABLE: return ShaderStage::Callable;
-			case SLANG_STAGE_AMPLIFICATION: return ShaderStage::Task;
-			case SLANG_STAGE_MESH: return ShaderStage::Mesh;
-			default: return ShaderStage::None;
+			case SLANG_STAGE_VERTEX: return VK_SHADER_STAGE_VERTEX_BIT;
+			case SLANG_STAGE_FRAGMENT: return VK_SHADER_STAGE_FRAGMENT_BIT;
+			case SLANG_STAGE_COMPUTE: return VK_SHADER_STAGE_COMPUTE_BIT;
+			case SLANG_STAGE_RAY_GENERATION: return VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+			case SLANG_STAGE_MISS: return VK_SHADER_STAGE_MISS_BIT_KHR;
+			case SLANG_STAGE_CLOSEST_HIT: return VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+			case SLANG_STAGE_ANY_HIT: return VK_SHADER_STAGE_ANY_HIT_BIT_KHR;
+			case SLANG_STAGE_INTERSECTION: return VK_SHADER_STAGE_INTERSECTION_BIT_KHR;
+			case SLANG_STAGE_CALLABLE: return VK_SHADER_STAGE_CALLABLE_BIT_KHR;
+			case SLANG_STAGE_AMPLIFICATION: return VK_SHADER_STAGE_TASK_BIT_EXT;
+			case SLANG_STAGE_MESH: return VK_SHADER_STAGE_MESH_BIT_EXT;
+			default: return static_cast<VkShaderStageFlagBits>(0);
 		}
 	}
 
@@ -209,10 +208,13 @@ ShaderCompileResult ShaderCompiler::Compile(const std::filesystem::path& sourceP
 		if (SLANG_FAILED(module->getDefinedEntryPoint(static_cast<SlangInt32>(i), entryPoint.writeRef())))
 			continue;
 
-		const ShaderStage stage = FromSlangStage(entryPoint->getLayout(0)->getEntryPointByIndex(0)->getStage());
+		const VkShaderStageFlagBits stage = FromSlangStage(entryPoint->getLayout(0)->getEntryPointByIndex(0)->getStage());
 
-		if (stage != ShaderStage::None)
+		if (stage != 0)
+		{
 			result.Stages.push_back(stage);
+			result.StageMask |= stage;
+		}
 	}
 
 	if (result.Stages.empty())
@@ -233,12 +235,7 @@ ShaderCompileResult ShaderCompiler::Compile(const std::filesystem::path& sourceP
 
 	result.SpirV = BlobToSpirV(spirv);
 
-	VkShaderStageFlags stageFlags = 0;
-
-	for (ShaderStage stage : result.Stages)
-		stageFlags |= ToVulkan(stage);
-
-	Reflect(module->getLayout(0), result.Reflection, stageFlags);
+	Reflect(module->getLayout(0), result.Reflection, result.StageMask);
 
 	return result;
 }

@@ -85,6 +85,14 @@ bool Material::GetUniformData(const std::string& name, void* outData, uint32_t s
 	return false;
 }
 
+void Material::PushConstants(CommandBuffer& cmd) const
+{
+	assert(m_Shader && !m_Shader->GetPushConstantRanges().empty());
+
+	const PushConstantRange& range = m_Shader->GetPushConstantRanges()[0];
+	cmd.PushConstants(m_Shader->GetPipelineLayout(), range.StageFlags, m_UniformStorage.data() + range.Offset, range.Size, range.Offset);
+}
+
 void Material::AddTexture(const MapInfo& map)
 {
 	m_Maps.push_back(map);

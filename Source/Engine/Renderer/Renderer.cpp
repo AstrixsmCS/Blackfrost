@@ -36,8 +36,7 @@ void Renderer::Initialize(SDL_Window *windowHandle)
 
 	shaders.Load("Assets/Shaders/Mesh.slang");
 	shaders.Load("Assets/Shaders/Lighting.slang");
-	shaders.Load("Assets/Shaders/Tonemap.slang");
-	shaders.Load("Assets/Shaders/Composite.slang");
+	shaders.Load("Assets/Shaders/Post.slang");
 }
 
 void Renderer::Shutdown()

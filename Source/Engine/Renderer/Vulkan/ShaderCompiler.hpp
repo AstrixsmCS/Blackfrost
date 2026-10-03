@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Renderer/RendererTypes.hpp"
 #include "Shader.hpp"
 
 #include <slang/slang.h>
@@ -11,9 +10,10 @@
 
 struct ShaderCompileResult
 {
-	std::vector<uint32_t>    SpirV;
-	std::vector<ShaderStage> Stages;
-	ShaderReflectionData     Reflection;
+	std::vector<uint32_t>              SpirV;
+	std::vector<VkShaderStageFlagBits> Stages;
+	VkShaderStageFlags                 StageMask = 0;
+	ShaderReflectionData               Reflection;
 
 	bool IsValid() const { return !SpirV.empty() && !Stages.empty(); }
 };

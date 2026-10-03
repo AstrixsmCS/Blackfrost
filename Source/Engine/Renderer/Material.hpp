@@ -2,6 +2,7 @@
 
 #include "Vulkan/Shader.hpp"
 #include "Vulkan/Texture.hpp"
+#include "Vulkan/CommandBuffer.hpp"
 
 #include <glm/glm.hpp>
 
@@ -87,6 +88,8 @@ public:
 
 	const std::vector<uint8_t>& GetUniformStorage() const { return m_UniformStorage; }
 
+	void PushConstants(CommandBuffer& cmd) const;
+
 	// Texture maps
 	void AddTexture(const MapInfo& map);
 	void SetTexture(const MapInfo& map);
@@ -135,9 +138,9 @@ public:
 	}
 
 	// Face culling
-	CullMode GetCullMode() const { return m_CullMode; }
+	VkCullModeFlags GetCullMode() const { return m_CullMode; }
 
-	void SetCullMode(CullMode mode)
+	void SetCullMode(VkCullModeFlags mode)
 	{
 		m_CullMode = mode;
 		MarkDirty();
@@ -187,7 +190,7 @@ private:
 
 	// Graphics state applied by the renderer when drawing.
 	BlendMode m_BlendMode = BlendMode::None;
-	CullMode  m_CullMode  = CullMode::Back;
+	VkCullModeFlags m_CullMode = VK_CULL_MODE_BACK_BIT;
 
 	uint64_t m_Revision = 1;
 };

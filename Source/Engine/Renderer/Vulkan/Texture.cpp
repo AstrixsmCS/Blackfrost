@@ -4,7 +4,6 @@
 #include "CommandBuffer.hpp"
 #include "Context.hpp"
 #include "UploadContext.hpp"
-#include "VulkanUtils.hpp"
 
 #include <stb/stb_image.h>
 
@@ -117,14 +116,14 @@ bool VulkanImage::IsStencilFormat(VkFormat format)
 
 void Texture::Create(const TextureSpecification& specification)
 {
-	assert(specification.Size.Width > 0);
-	assert(specification.Size.Height > 0);
-	assert(specification.Size.Depth > 0);
+	assert(specification.Size.width > 0);
+	assert(specification.Size.height > 0);
+	assert(specification.Size.depth > 0);
 	assert(specification.NumMipLevels > 0);
 	assert(specification.Usage != 0);
 
 	assert(specification.Type != TextureType::Texture3D || specification.NumLayers == 1);
-	assert(specification.Type != TextureType::TextureCube || specification.Size.Width == specification.Size.Height);
+	assert(specification.Type != TextureType::TextureCube || specification.Size.width == specification.Size.height);
 
 	Destroy();
 
@@ -133,7 +132,7 @@ void Texture::Create(const TextureSpecification& specification)
 
 	VkDevice device = Context::Get().GetDevice();
 
-	const VkFormat vkFormat    = ToVulkan(specification.Format);
+	const VkFormat vkFormat    = specification.Format;
 	const uint32_t arrayLayers = (specification.Type == TextureType::TextureCube) ? specification.NumLayers * 6 : specification.NumLayers;
 
 	VkImageViewType viewType = VK_IMAGE_VIEW_TYPE_2D;
@@ -150,9 +149,9 @@ void Texture::Create(const TextureSpecification& specification)
 			break;
 	}
 
-	const uint32_t depth = (specification.Type == TextureType::Texture3D) ? specification.Size.Depth : 1u;
+	const uint32_t depth = (specification.Type == TextureType::Texture3D) ? specification.Size.depth : 1u;
 
-	const uint32_t mipLevels = specification.GenerateMips ? CalcMipCount(specification.Size.Width, specification.Size.Height, depth) : specification.NumMipLevels;
+	const uint32_t mipLevels = specification.GenerateMips ? CalcMipCount(specification.Size.width, specification.Size.height, depth) : specification.NumMipLevels;
 
 	assert(mipLevels <= MAX_MIP_LEVELS);
 	assert(arrayLayers <= MAX_CUBE_FACES || specification.Type != TextureType::TextureCube);
@@ -179,7 +178,7 @@ void Texture::Create(const TextureSpecification& specification)
 		.flags         = (specification.Type == TextureType::TextureCube) ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : VkImageCreateFlags(0),
 		.imageType     = (specification.Type == TextureType::Texture3D) ? VK_IMAGE_TYPE_3D : VK_IMAGE_TYPE_2D,
 		.format        = vkFormat,
-		.extent        = { specification.Size.Width, specification.Size.Height, depth },
+		.extent        = { specification.Size.width, specification.Size.height, depth },
 		.mipLevels     = mipLevels,
 		.arrayLayers   = arrayLayers,
 		.samples       = VK_SAMPLE_COUNT_1_BIT,
@@ -233,7 +232,7 @@ void Texture::Create(const TextureSpecification& specification)
 
 	if (specification.Data)
 	{
-		const size_t byteSize = static_cast<size_t>(specification.Size.Width) * specification.Size.Height * depth * arrayLayers * GetFormatBytesPerPixel(specification.Format);
+		const size_t byteSize = static_cast<size_t>(specification.Size.width) * specification.Size.height * depth * arrayLayers * GetFormatBytesPerPixel(specification.Format);
 		SetData(specification.Data, byteSize);
 
 		if (mipLevels > 1)
@@ -357,7 +356,7 @@ bool Texture::Load(const std::filesystem::path& path, bool sRGB)
 		Create(
 		{
 			.Type      = TextureType::Texture2D,
-			.Format    = Format::RGBA16_Float,
+			.Format    = VK_FORMAT_R16G16B16A16_SFLOAT,
 			.Size      = { static_cast<uint32_t>(w), static_cast<uint32_t>(h), 1 },
 			.Data      = halfPixels.data(),
 			.DebugName = path.filename().string()
@@ -380,7 +379,7 @@ bool Texture::Load(const std::filesystem::path& path, bool sRGB)
 	Create(
 	{
 		.Type         = TextureType::Texture2D,
-		.Format       = sRGB ? Format::RGBA8_SRGB : Format::RGBA8_UNorm,
+		.Format       = sRGB ? VK_FORMAT_R8G8B8A8_SRGB : VK_FORMAT_R8G8B8A8_UNORM,
 		.Size         = { static_cast<uint32_t>(w), static_cast<uint32_t>(h), 1 },
 		.Data         = pixels,
 		.GenerateMips = true,

@@ -5,7 +5,8 @@ static const uint LINEAR_CLAMP_SAMPLER = 1;
 
 struct PushConstants
 {
-	uint InputIndex;
+	uint  InputIndex; // HDR color
+	float Exposure;
 };
 
 [[vk::push_constant]]
@@ -28,8 +29,16 @@ VertexOutput main(uint vertexID : SV_VertexID)
 	return output;
 }
 
+// Simple per-channel Reinhard.
+float3 Reinhard(float3 color)
+{
+	return color / (1.0 + color);
+}
+
 [shader("fragment")]
 float4 main(VertexOutput input) : SV_Target
 {
-	return float4(g_Textures[g_PushConstants.InputIndex].Sample(g_Samplers[LINEAR_CLAMP_SAMPLER], input.UV).rgb, 1.0);
+	const float3 hdr = g_Textures[g_PushConstants.InputIndex].Sample(g_Samplers[LINEAR_CLAMP_SAMPLER], input.UV).rgb;
+
+	return float4(Reinhard(hdr * g_PushConstants.Exposure), 1.0);
 }

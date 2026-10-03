@@ -3,7 +3,6 @@
 #include "Allocator.hpp"
 #include "Context.hpp"
 #include "UploadContext.hpp"
-#include "VulkanUtils.hpp"
 
 #include <cassert>
 #include <cstring>

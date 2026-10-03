@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Descriptors.hpp"
-#include "Renderer/RendererTypes.hpp"
+#include "Format.hpp"
 #include "Vulkan.hpp"
 
 #include <algorithm>
@@ -12,6 +12,13 @@
 #include <string>
 
 #include <vma/vk_mem_alloc.h>
+
+enum class TextureType : uint8_t
+{
+	Texture2D = 0,
+	Texture3D,
+	TextureCube
+};
 
 enum TextureUsageBits : uint8_t
 {
@@ -40,11 +47,7 @@ struct TextureRangeDesc
 {
 	Offset3D Offset = {};
 
-	Dimensions Size = {
-		.Width  = 1,
-		.Height = 1,
-		.Depth  = 1
-	};
+	VkExtent3D Size = { 1, 1, 1 };
 
 	uint32_t Layer     = 0;
 	uint32_t NumLayers = 1;
@@ -100,43 +103,12 @@ inline uint32_t CalcMipCount(uint32_t width, uint32_t height, uint32_t depth = 1
 	return static_cast<uint32_t>(std::floor(std::log2(maxDimension))) + 1;
 }
 
-inline uint32_t GetFormatBytesPerPixel(Format format)
-{
-	switch (format)
-	{
-		case Format::RGBA8_UNorm:
-		case Format::RGBA8_SRGB:
-			return 4;
-		case Format::RGBA16_Float:
-			return 8;
-		case Format::RGBA32_Float:
-			return 16;
-		case Format::RG16_Float:
-			return 4;
-		case Format::RG32_Float:
-			return 8;
-		case Format::R8_UNorm:
-			return 1;
-		case Format::R16_Float:
-			return 2;
-		case Format::R32_Float:
-			return 4;
-		case Format::D32_Float:
-			return 4;
-		case Format::D24_UNorm_S8_UInt:
-			return 4;
-		default:
-			assert(false && "Unknown format in GetFormatBytesPerPixel");
-			return 0;
-	}
-}
-
 struct TextureSpecification
 {
 	TextureType Type   = TextureType::Texture2D;
-	Format      Format = Format::RGBA8_UNorm;
+	VkFormat    Format = VK_FORMAT_R8G8B8A8_UNORM;
 
-	Dimensions Size = { 1, 1, 1 };
+	VkExtent3D Size = { 1, 1, 1 };
 
 	uint32_t NumLayers    = 1;
 	uint32_t NumMipLevels = 1;
@@ -230,7 +202,7 @@ public:
 	bool IsDepthAttachment() const { return m_Image.IsDepthAttachment(); }
 
 	TextureType GetType() const { return m_Specification.Type; }
-	Format      GetFormat() const { return m_Specification.Format; }
+	VkFormat    GetFormat() const { return m_Specification.Format; }
 	uint32_t    GetWidth() const { return m_Image.Extent.width; }
 	uint32_t    GetHeight() const { return m_Image.Extent.height; }
 	uint32_t    GetDepth() const { return m_Image.Extent.depth; }

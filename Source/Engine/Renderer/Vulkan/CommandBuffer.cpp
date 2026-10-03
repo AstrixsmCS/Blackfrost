@@ -1,7 +1,8 @@
 #include "CommandBuffer.hpp"
 
 #include "Context.hpp"
-#include "VulkanUtils.hpp"
+#include "Descriptors.hpp"
+#include "Shader.hpp"
 
 #include <algorithm>
 #include <cassert>
@@ -116,95 +117,68 @@ void CommandBuffer::End()
 
 // ==== Recording commands ====
 
+static VkRenderingAttachmentInfo ToVulkan(const RenderingAttachmentInfo& attachment)
+{
+	return {
+		.sType              = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+		.imageView          = attachment.ImageView,
+		.imageLayout        = attachment.Layout,
+		.resolveMode        = attachment.ResolveMode,
+		.resolveImageView   = attachment.ResolveImageView,
+		.resolveImageLayout = attachment.ResolveImageLayout,
+		.loadOp             = attachment.LoadOp,
+		.storeOp            = attachment.StoreOp,
+		.clearValue         = attachment.ClearValue
+	};
+}
+
 void CommandBuffer::BeginRendering(const RenderingInfo& info)
 {
 	assert(m_Handle != VK_NULL_HANDLE);
-	assert(info.ColorAttachments.size() <= 8);
 
-	std::array<VkRenderingAttachmentInfo, 8> colorAttachments{};
+	constexpr size_t MAX_COLOR_ATTACHMENTS = 8;
+	assert(info.ColorAttachments.size() <= MAX_COLOR_ATTACHMENTS);
 
-	for (uint32_t i = 0; i < static_cast<uint32_t>(info.ColorAttachments.size()); ++i)
-	{
-		const RenderingAttachmentInfo& a = info.ColorAttachments[i];
+	std::array<VkRenderingAttachmentInfo, MAX_COLOR_ATTACHMENTS> colorAttachments;
 
-		colorAttachments[i] = {
-			.sType              = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-			.imageView          = a.ImageView,
-			.imageLayout        = a.Layout,
-			.resolveMode        = ToVulkan(a.ResolveMode),
-			.resolveImageView   = a.ResolveImageView,
-			.resolveImageLayout = a.ResolveImageLayout,
-			.loadOp             = ToVulkan(a.LoadOp),
-			.storeOp            = ToVulkan(a.StoreOp),
-			.clearValue         = { .color = { .float32 = { a.ClearValue.Color.Float32[0], a.ClearValue.Color.Float32[1], a.ClearValue.Color.Float32[2], a.ClearValue.Color.Float32[3] } } }
-		};
-	}
+	for (size_t i = 0; i < info.ColorAttachments.size(); ++i)
+		colorAttachments[i] = ToVulkan(info.ColorAttachments[i]);
 
 	VkRenderingAttachmentInfo depthAttachment{};
-
-	if (info.DepthAttachment)
-	{
-		const RenderingAttachmentInfo& a = *info.DepthAttachment;
-
-		depthAttachment = {
-			.sType              = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-			.imageView          = a.ImageView,
-			.imageLayout        = a.Layout,
-			.resolveMode        = ToVulkan(a.ResolveMode),
-			.resolveImageView   = a.ResolveImageView,
-			.resolveImageLayout = a.ResolveImageLayout,
-			.loadOp             = ToVulkan(a.LoadOp),
-			.storeOp            = ToVulkan(a.StoreOp),
-			.clearValue         = { .depthStencil = { a.ClearValue.DepthStencil.Depth, a.ClearValue.DepthStencil.Stencil } }
-		};
-	}
-
 	VkRenderingAttachmentInfo stencilAttachment{};
 
+	if (info.DepthAttachment)
+		depthAttachment = ToVulkan(*info.DepthAttachment);
+
 	if (info.StencilAttachment)
+		stencilAttachment = ToVulkan(*info.StencilAttachment);
+
+	const VkRenderingInfo renderingInfo
 	{
-		const RenderingAttachmentInfo& a = *info.StencilAttachment;
-
-		stencilAttachment = {
-			.sType              = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-			.imageView          = a.ImageView,
-			.imageLayout        = a.Layout,
-			.resolveMode        = ToVulkan(a.ResolveMode),
-			.resolveImageView   = a.ResolveImageView,
-			.resolveImageLayout = a.ResolveImageLayout,
-			.loadOp             = ToVulkan(a.LoadOp),
-			.storeOp            = ToVulkan(a.StoreOp),
-			.clearValue         = { .depthStencil = { a.ClearValue.DepthStencil.Depth, a.ClearValue.DepthStencil.Stencil } }
-		};
-	}
-
-	const VkRect2D renderArea = ToVulkan(info.RenderArea);
-
-	const VkRenderingInfo renderingInfo{
 		.sType                = VK_STRUCTURE_TYPE_RENDERING_INFO,
 		.flags                = info.Flags,
-		.renderArea           = renderArea,
+		.renderArea           = info.RenderArea,
 		.layerCount           = info.LayerCount,
 		.colorAttachmentCount = static_cast<uint32_t>(info.ColorAttachments.size()),
 		.pColorAttachments    = info.ColorAttachments.empty() ? nullptr : colorAttachments.data(),
 		.pDepthAttachment     = info.DepthAttachment ? &depthAttachment : nullptr,
 		.pStencilAttachment   = info.StencilAttachment ? &stencilAttachment : nullptr
-	};
+	 };
 
 	vkCmdBeginRendering(m_Handle, &renderingInfo);
 
-	// Negative height flips Y to match the Vulkan convention.
-	const VkViewport viewport{
-		.x        = static_cast<float>(info.RenderArea.X),
-		.y        = static_cast<float>(info.RenderArea.Y + info.RenderArea.Height),
-		.width    = static_cast<float>(info.RenderArea.Width),
-		.height   = -static_cast<float>(info.RenderArea.Height),
+	const VkRect2D& area = info.RenderArea;
+
+	SetViewport({
+		.x        = static_cast<float>(area.offset.x),
+		.y        = static_cast<float>(area.offset.y),
+		.width    = static_cast<float>(area.extent.width),
+		.height   = static_cast<float>(area.extent.height),
 		.minDepth = 0.0f,
 		.maxDepth = 1.0f
-	};
+	});
 
-	vkCmdSetViewportWithCount(m_Handle, 1, &viewport);
-	vkCmdSetScissorWithCount(m_Handle, 1, &renderArea);
+	vkCmdSetScissorWithCount(m_Handle, 1, &area);
 }
 
 void CommandBuffer::EndRendering()
@@ -219,52 +193,43 @@ void CommandBuffer::SetGraphicsState(const GraphicsState& state, uint32_t colorA
 
 	// Vertex input
 	{
-		std::vector<VkVertexInputBindingDescription2EXT>   bindings;
-		std::vector<VkVertexInputAttributeDescription2EXT> attributes;
+		const VertexLayout& layout = state.VertexLayout;
 
-		if (state.VertexLayout.GetElementCount() > 0)
+		const VkVertexInputBindingDescription2EXT binding
 		{
-			bindings.push_back(
+			.sType     = VK_STRUCTURE_TYPE_VERTEX_INPUT_BINDING_DESCRIPTION_2_EXT,
+			.binding   = 0,
+			.stride    = layout.Stride,
+			.inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
+			.divisor   = 1
+		};
+
+		std::array<VkVertexInputAttributeDescription2EXT, VertexLayout::MAX_ATTRIBUTES> attributes;
+
+		for (uint32_t i = 0; i < layout.Count; ++i)
+		{
+			attributes[i] =
 			{
-				.sType     = VK_STRUCTURE_TYPE_VERTEX_INPUT_BINDING_DESCRIPTION_2_EXT,
-				.binding   = 0,
-				.stride    = state.VertexLayout.GetStride(),
-				.inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
-				.divisor   = 1
-			});
-
-			uint32_t location = 0;
-
-			for (const auto& element : state.VertexLayout)
-			{
-				const VkFormat fmt = ToVulkan(element.Type);
-				assert(fmt != VK_FORMAT_UNDEFINED);
-
-				attributes.push_back(
-				{
-					.sType    = VK_STRUCTURE_TYPE_VERTEX_INPUT_ATTRIBUTE_DESCRIPTION_2_EXT,.location = location++,
-					.binding  = 0,
-					.format   = fmt,
-					.offset   = element.Offset
-				});
-			}
+				.sType    = VK_STRUCTURE_TYPE_VERTEX_INPUT_ATTRIBUTE_DESCRIPTION_2_EXT,
+				.location = i,
+				.binding  = 0,
+				.format   = layout.Attributes[i].Format,
+				.offset   = layout.Attributes[i].Offset
+			};
 		}
 
-		vkCmdSetVertexInputEXT(
-			m_Handle,
-			static_cast<uint32_t>(bindings.size()), bindings.empty() ? nullptr : bindings.data(),
-			static_cast<uint32_t>(attributes.size()), attributes.empty() ? nullptr : attributes.data());
+		vkCmdSetVertexInputEXT(m_Handle, layout.Count > 0 ? 1 : 0, &binding, layout.Count, attributes.data());
 	}
 
 	// Input assembly
-	vkCmdSetPrimitiveTopology(m_Handle, ToVulkan(state.PrimitiveTopology));
+	vkCmdSetPrimitiveTopology(m_Handle, state.PrimitiveTopology);
 	vkCmdSetPrimitiveRestartEnable(m_Handle, state.PrimitiveRestart ? VK_TRUE : VK_FALSE);
 
 	// Rasterization
 	vkCmdSetRasterizerDiscardEnable(m_Handle, VK_FALSE);
-	vkCmdSetPolygonModeEXT(m_Handle, ToVulkan(state.PolygonMode));
-	vkCmdSetCullMode(m_Handle, ToVulkan(state.CullMode));
-	vkCmdSetFrontFace(m_Handle, ToVulkan(state.FrontFace));
+	vkCmdSetPolygonModeEXT(m_Handle, state.PolygonMode);
+	vkCmdSetCullMode(m_Handle, state.CullMode);
+	vkCmdSetFrontFace(m_Handle, state.FrontFace);
 
 	vkCmdSetDepthBiasEnable(m_Handle, state.DepthBias ? VK_TRUE : VK_FALSE);
 	vkCmdSetDepthClampEnableEXT(m_Handle, VK_FALSE);
@@ -282,7 +247,7 @@ void CommandBuffer::SetGraphicsState(const GraphicsState& state, uint32_t colorA
 	// Depth / stencil
 	vkCmdSetDepthTestEnable(m_Handle, state.DepthTest ? VK_TRUE : VK_FALSE);
 	vkCmdSetDepthWriteEnable(m_Handle, state.DepthWrite ? VK_TRUE : VK_FALSE);
-	vkCmdSetDepthCompareOp(m_Handle, ToVulkan(state.DepthCompare));
+	vkCmdSetDepthCompareOp(m_Handle, state.DepthCompare);
 	vkCmdSetDepthBoundsTestEnable(m_Handle, VK_FALSE);
 	vkCmdSetStencilTestEnable(m_Handle, state.Stencil.Enable ? VK_TRUE : VK_FALSE);
 
@@ -290,7 +255,7 @@ void CommandBuffer::SetGraphicsState(const GraphicsState& state, uint32_t colorA
 	{
 		const auto setStencilFace = [&](VkStencilFaceFlags face, const StencilFaceState& faceState)
 		{
-			vkCmdSetStencilOp(m_Handle, face, ToVulkan(faceState.FailOp), ToVulkan(faceState.PassOp), ToVulkan(faceState.DepthFailOp), ToVulkan(faceState.Compare));
+			vkCmdSetStencilOp(m_Handle, face, faceState.FailOp, faceState.PassOp, faceState.DepthFailOp, faceState.Compare);
 			vkCmdSetStencilCompareMask(m_Handle, face, faceState.CompareMask);
 			vkCmdSetStencilWriteMask(m_Handle, face, faceState.WriteMask);
 			vkCmdSetStencilReference(m_Handle, face, faceState.Reference);
@@ -483,6 +448,19 @@ void CommandBuffer::DrawMeshTasksIndirectCount(VkBuffer buffer, VkDeviceSize off
 
 // ==== Bindings ====
 
+void CommandBuffer::BindShader(const Shader& shader)
+{
+	assert(m_Handle != VK_NULL_HANDLE);
+	assert(shader.IsValid());
+
+	shader.Bind(*this);
+
+	const VkPipelineBindPoint bindPoint = (shader.GetStageMask() & VK_SHADER_STAGE_COMPUTE_BIT) ? VK_PIPELINE_BIND_POINT_COMPUTE : VK_PIPELINE_BIND_POINT_GRAPHICS;
+	const VkDescriptorSet     set       = Descriptor::GetSet();
+
+	vkCmdBindDescriptorSets(m_Handle, bindPoint, shader.GetPipelineLayout(), 0, 1, &set, 0, nullptr);
+}
+
 void CommandBuffer::BindVertexBuffer(VkBuffer buffer, VkDeviceSize offset, uint32_t binding)
 {
 	assert(m_Handle != VK_NULL_HANDLE);
@@ -490,11 +468,11 @@ void CommandBuffer::BindVertexBuffer(VkBuffer buffer, VkDeviceSize offset, uint3
 	vkCmdBindVertexBuffers(m_Handle, binding, 1, &buffer, &offset);
 }
 
-void CommandBuffer::BindIndexBuffer(VkBuffer buffer, IndexFormat format, VkDeviceSize offset)
+void CommandBuffer::BindIndexBuffer(VkBuffer buffer, VkIndexType indexType, VkDeviceSize offset)
 {
 	assert(m_Handle != VK_NULL_HANDLE);
 	assert(buffer != VK_NULL_HANDLE);
-	vkCmdBindIndexBuffer(m_Handle, buffer, offset, ToVulkan(format));
+	vkCmdBindIndexBuffer(m_Handle, buffer, offset, indexType);
 }
 
 void CommandBuffer::PushConstants(VkPipelineLayout layout, VkShaderStageFlags stages, const void* data, uint32_t size, uint32_t offset)
@@ -509,30 +487,29 @@ void CommandBuffer::PushConstants(VkPipelineLayout layout, VkShaderStageFlags st
 
 // ==== Dynamic state overrides ====
 
-void CommandBuffer::SetViewport(const Viewport& viewport)
+void CommandBuffer::SetViewport(const VkViewport& viewport)
 {
 	assert(m_Handle != VK_NULL_HANDLE);
 
-	// Negative height flips Y
-	const VkViewport vkViewport
+	// Negative height flips Y to match the Vulkan convention.
+	const VkViewport flipped
 	{
-		.x        = viewport.X,
-		.y        = viewport.Y + viewport.Height,
-		.width    = viewport.Width,
-		.height   = -viewport.Height,
-		.minDepth = viewport.MinDepth,
-		.maxDepth = viewport.MaxDepth
+		.x        = viewport.x,
+		.y        = viewport.y + viewport.height,
+		.width    = viewport.width,
+		.height   = -viewport.height,
+		.minDepth = viewport.minDepth,
+		.maxDepth = viewport.maxDepth
 	};
 
-	vkCmdSetViewportWithCount(m_Handle, 1, &vkViewport);
+	vkCmdSetViewportWithCount(m_Handle, 1, &flipped);
 }
 
-void CommandBuffer::SetScissor(const ScissorRect& rect)
+void CommandBuffer::SetScissor(const VkRect2D& rect)
 {
 	assert(m_Handle != VK_NULL_HANDLE);
 
-	const VkRect2D scissor = ToVulkan(rect);
-	vkCmdSetScissorWithCount(m_Handle, 1, &scissor);
+	vkCmdSetScissorWithCount(m_Handle, 1, &rect);
 }
 
 void CommandBuffer::SetDepthBias(float constantFactor, float slopeFactor, float clamp)
@@ -545,6 +522,12 @@ void CommandBuffer::SetBlendConstants(const std::array<float, 4>& constants)
 {
 	assert(m_Handle != VK_NULL_HANDLE);
 	vkCmdSetBlendConstants(m_Handle, constants.data());
+}
+
+void CommandBuffer::SetCullMode(VkCullModeFlags mode)
+{
+	assert(m_Handle != VK_NULL_HANDLE);
+	vkCmdSetCullMode(m_Handle, mode);
 }
 
 // ==== Buffer transfers ====
@@ -599,16 +582,12 @@ void CommandBuffer::UpdateBuffer(VkBuffer buffer, VkDeviceSize offset, VkDeviceS
 
 // ==== Images ====
 
-void CommandBuffer::ClearColorImage(VkImage image, VkImageLayout layout, const ClearColorValue& color, VkImageSubresourceRange range)
+void CommandBuffer::ClearColorImage(VkImage image, VkImageLayout layout, const VkClearColorValue& color, VkImageSubresourceRange range)
 {
 	assert(m_Handle != VK_NULL_HANDLE);
 	assert(image != VK_NULL_HANDLE);
 
-	const VkClearColorValue vkColor{
-		.float32 = { color.Float32[0], color.Float32[1], color.Float32[2], color.Float32[3] }
-	};
-
-	vkCmdClearColorImage(m_Handle, image, layout, &vkColor, 1, &range);
+	vkCmdClearColorImage(m_Handle, image, layout, &color, 1, &range);
 }
 
 void CommandBuffer::CopyImage(VkImage src, VkImageLayout srcLayout, VkImage dst, VkImageLayout dstLayout, const VkImageCopy2& region)

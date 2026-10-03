@@ -1,13 +1,12 @@
 #include "Shader.hpp"
 
-#include "VulkanUtils.hpp"
-
 #include "CommandBuffer.hpp"
 #include "Context.hpp"
 #include "Descriptors.hpp"
 #include "ShaderCompiler.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <cassert>
 #include <string>
 #include <utility>
@@ -28,66 +27,49 @@ namespace
 		return ranges;
 	}
 
-	bool HasStage(const std::vector<ShaderStage>& stages, ShaderStage stage)
+	constexpr VkShaderStageFlags SHADER_OBJECT_STAGES =
+		VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT |
+		VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT;
+
+	constexpr VkShaderStageFlags VERTEX_PIPELINE = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+	constexpr VkShaderStageFlags MESH_PIPELINE   = VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT;
+
+	// Only vertex+fragment and task+mesh+fragment sets can be linked, and only without duplicate stages.
+	bool CanLinkStages(VkShaderStageFlags mask, size_t stageCount)
 	{
-		return std::ranges::find(stages, stage) != stages.end();
+		if (static_cast<size_t>(std::popcount(mask)) != stageCount)
+			return false;
+
+		return mask == VERTEX_PIPELINE || mask == MESH_PIPELINE || mask == (MESH_PIPELINE | VK_SHADER_STAGE_TASK_BIT_EXT);
 	}
 
-	bool CanLinkStages(const std::vector<ShaderStage>& stages)
-	{
-		const bool isVertexPipeline = stages.size() == 2 && HasStage(stages, ShaderStage::Vertex) && HasStage(stages, ShaderStage::Fragment);
-
-		const bool isMeshPipeline = HasStage(stages, ShaderStage::Mesh) && HasStage(stages, ShaderStage::Fragment) && stages.size() == (HasStage(stages, ShaderStage::Task) ? 3u : 2u);
-
-		return isVertexPipeline || isMeshPipeline;
-	}
-
-	VkShaderStageFlags GetNextStage(ShaderStage stage, const std::vector<ShaderStage>& stages)
+	VkShaderStageFlags GetNextStage(VkShaderStageFlagBits stage, VkShaderStageFlags mask)
 	{
 		switch (stage)
 		{
-			case ShaderStage::Vertex: return HasStage(stages, ShaderStage::Fragment) ? VK_SHADER_STAGE_FRAGMENT_BIT : 0;
-			case ShaderStage::Task: return HasStage(stages, ShaderStage::Mesh) ? VK_SHADER_STAGE_MESH_BIT_EXT : 0;
-			case ShaderStage::Mesh: return HasStage(stages, ShaderStage::Fragment) ? VK_SHADER_STAGE_FRAGMENT_BIT : 0;
-			default: return 0;
-		}
-	}
+			case VK_SHADER_STAGE_VERTEX_BIT:
+			case VK_SHADER_STAGE_MESH_BIT_EXT:
+				return mask & VK_SHADER_STAGE_FRAGMENT_BIT;
 
-	bool SupportsShaderObjects(ShaderStage stage)
-	{
-		switch (stage)
-		{
-			case ShaderStage::Vertex:
-			case ShaderStage::Fragment:
-			case ShaderStage::Compute:
-			case ShaderStage::Task:
-			case ShaderStage::Mesh:
-				return true;
+			case VK_SHADER_STAGE_TASK_BIT_EXT:
+				return mask & VK_SHADER_STAGE_MESH_BIT_EXT;
 
 			default:
-				return false;
+				return 0;
 		}
 	}
 
-	const char* GetShaderStageName(ShaderStage stage)
+	const char* GetShaderStageName(VkShaderStageFlagBits stage)
 	{
 		switch (stage)
 		{
-			case ShaderStage::Vertex: return "Vertex";
-			case ShaderStage::Fragment: return "Fragment";
-			case ShaderStage::Compute: return "Compute";
-			case ShaderStage::RayGen: return "Ray Generation";
-			case ShaderStage::Miss: return "Miss";
-			case ShaderStage::ClosestHit: return "Closest Hit";
-			case ShaderStage::AnyHit: return "Any Hit";
-			case ShaderStage::Intersection: return "Intersection";
-			case ShaderStage::Callable: return "Callable";
-			case ShaderStage::Task: return "Task";
-			case ShaderStage::Mesh: return "Mesh";
-			case ShaderStage::None: return "None";
+			case VK_SHADER_STAGE_VERTEX_BIT: return "Vertex";
+			case VK_SHADER_STAGE_FRAGMENT_BIT: return "Fragment";
+			case VK_SHADER_STAGE_COMPUTE_BIT: return "Compute";
+			case VK_SHADER_STAGE_TASK_BIT_EXT: return "Task";
+			case VK_SHADER_STAGE_MESH_BIT_EXT: return "Mesh";
+			default: return "Unknown";
 		}
-
-		return "Unknown";
 	}
 }
 
@@ -107,6 +89,7 @@ void Shader::Load(const std::filesystem::path& filePath)
 	m_Path           = filePath;
 	m_SpirV          = std::move(result.SpirV);
 	m_Stages         = std::move(result.Stages);
+	m_StageMask      = result.StageMask;
 	m_ReflectionData = std::move(result.Reflection);
 
 	assert(!m_SpirV.empty());
@@ -122,7 +105,6 @@ void Shader::Shutdown()
 	Destroy();
 
 	m_SpirV.clear();
-	m_Stages.clear();
 	m_ReflectionData = {};
 	m_Path.clear();
 }
@@ -142,9 +124,9 @@ void Shader::Bind(CommandBuffer& commandBuffer) const
 
 	const VkCommandBuffer handle = commandBuffer.GetHandle();
 
-	vkCmdBindShadersEXT(handle, static_cast<uint32_t>(m_ShaderStageBits.size()), m_ShaderStageBits.data(), m_ShaderObjects.data());
+	vkCmdBindShadersEXT(handle, static_cast<uint32_t>(m_Stages.size()), m_Stages.data(), m_ShaderObjects.data());
 
-	if (HasStage(m_Stages, ShaderStage::Compute))
+	if (m_StageMask & VK_SHADER_STAGE_COMPUTE_BIT)
 		return;
 
 	constexpr VkShaderEXT nullShader = VK_NULL_HANDLE;
@@ -154,20 +136,20 @@ void Shader::Bind(CommandBuffer& commandBuffer) const
 		vkCmdBindShadersEXT(handle, 1, &stage, &nullShader);
 	};
 
-	if (HasStage(m_Stages, ShaderStage::Vertex))
+	if (m_StageMask & VK_SHADER_STAGE_VERTEX_BIT)
 	{
 		bindNull(VK_SHADER_STAGE_TASK_BIT_EXT);
 		bindNull(VK_SHADER_STAGE_MESH_BIT_EXT);
 	}
-	else if (HasStage(m_Stages, ShaderStage::Mesh))
+	else if (m_StageMask & VK_SHADER_STAGE_MESH_BIT_EXT)
 	{
 		bindNull(VK_SHADER_STAGE_VERTEX_BIT);
 
-		if (!HasStage(m_Stages, ShaderStage::Task))
+		if (!(m_StageMask & VK_SHADER_STAGE_TASK_BIT_EXT))
 			bindNull(VK_SHADER_STAGE_TASK_BIT_EXT);
 	}
 
-	if (!HasStage(m_Stages, ShaderStage::Fragment))
+	if (!(m_StageMask & VK_SHADER_STAGE_FRAGMENT_BIT))
 		bindNull(VK_SHADER_STAGE_FRAGMENT_BIT);
 }
 
@@ -206,37 +188,31 @@ void Shader::CreateShaderObjects()
 	const std::vector<VkPushConstantRange> pushConstantRanges = CreatePushConstantRanges(m_ReflectionData);
 
 	const uint32_t stageCount = static_cast<uint32_t>(m_Stages.size());
-	const bool     linkStages = CanLinkStages(m_Stages);
+	const bool     linkStages = CanLinkStages(m_StageMask, m_Stages.size());
 
 	m_ShaderObjects.assign(stageCount, VK_NULL_HANDLE);
-	m_ShaderStageBits.resize(stageCount);
 
 	std::vector<VkShaderCreateInfoEXT> createInfos;
 	createInfos.reserve(stageCount);
 
 	for (uint32_t i = 0; i < stageCount; ++i)
 	{
-		const ShaderStage stage = m_Stages[i];
+		const VkShaderStageFlagBits stage = m_Stages[i];
 
 		// Ray-tracing stages still require a ray-tracing pipeline and SBT.
-		assert(SupportsShaderObjects(stage));
+		assert((SHADER_OBJECT_STAGES & stage) != 0);
 
-		const VkShaderStageFlagBits stageBit = static_cast<VkShaderStageFlagBits>(ToVulkan(stage));
-
-		assert(stageBit != 0);
-
-		m_ShaderStageBits[i]               = stageBit;
 		VkShaderCreateFlagsEXT shaderFlags = linkStages ? VK_SHADER_CREATE_LINK_STAGE_BIT_EXT : VkShaderCreateFlagsEXT{ 0 };
 
-		if (stage == ShaderStage::Mesh && !HasStage(m_Stages, ShaderStage::Task))
+		if (stage == VK_SHADER_STAGE_MESH_BIT_EXT && !(m_StageMask & VK_SHADER_STAGE_TASK_BIT_EXT))
 			shaderFlags |= VK_SHADER_CREATE_NO_TASK_SHADER_BIT_EXT;
 
 		createInfos.push_back(
 		{
 			.sType                  = VK_STRUCTURE_TYPE_SHADER_CREATE_INFO_EXT,
 			.flags                  = shaderFlags,
-			.stage                  = stageBit,
-			.nextStage              = GetNextStage(stage, m_Stages),
+			.stage                  = stage,
+			.nextStage              = GetNextStage(stage, m_StageMask),
 			.codeType               = VK_SHADER_CODE_TYPE_SPIRV_EXT,
 			.codeSize               = m_SpirV.size() * sizeof(uint32_t),
 			.pCode                  = m_SpirV.data(),
@@ -272,7 +248,8 @@ void Shader::Destroy()
 	}
 
 	m_ShaderObjects.clear();
-	m_ShaderStageBits.clear();
+	m_Stages.clear();
+	m_StageMask = 0;
 
 	if (m_PipelineLayout != VK_NULL_HANDLE)
 	{

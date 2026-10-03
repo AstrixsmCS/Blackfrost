@@ -34,10 +34,10 @@ static glm::mat4 NodeToMatrix(const fastgltf::Node& node)
 	return glm::mat4(1.0f);
 }
 
-static void MarkLinear(std::vector<Format>& textureFormats, const fastgltf::TextureInfo& textureInfo)
+static void MarkLinear(std::vector<VkFormat>& textureFormats, const fastgltf::TextureInfo& textureInfo)
 {
 	if (textureInfo.textureIndex < textureFormats.size())
-		textureFormats[textureInfo.textureIndex] = Format::RGBA8_UNorm;
+		textureFormats[textureInfo.textureIndex] = VK_FORMAT_R8G8B8A8_UNORM;
 }
 
 static stbi_uc* DecodeImage(const fastgltf::Asset& asset, const fastgltf::Image& image, const std::filesystem::path& directory, int& width, int& height)
@@ -214,7 +214,7 @@ bool Mesh::Load(const std::filesystem::path& path)
 
 	// ==== Texture color spaces ====
 
-	std::vector<Format> textureFormats(asset.textures.size(), Format::RGBA8_SRGB);
+	std::vector<VkFormat> textureFormats(asset.textures.size(), VK_FORMAT_R8G8B8A8_SRGB);
 
 	for (const fastgltf::Material& gltfMaterial : asset.materials)
 	{
@@ -243,7 +243,7 @@ bool Mesh::Load(const std::filesystem::path& path)
 		}
 
 		const fastgltf::Image& gltfImage = asset.images[gltfTexture.imageIndex.value()];
-		const Format           format    = textureFormats[i];
+		const VkFormat format = textureFormats[i];
 
 		std::string debugName(gltfImage.name);
 
@@ -291,7 +291,7 @@ bool Mesh::Load(const std::filesystem::path& path)
 			continue;
 		}
 
-		std::println("[Mesh] Loaded texture '{}' ({})", debugName, format == Format::RGBA8_SRGB ? "sRGB" : "Linear");
+		std::println("[Mesh] Loaded texture '{}' ({})", debugName, format == VK_FORMAT_R8G8B8A8_SRGB ? "sRGB" : "Linear");
 
 		m_Textures.push_back(std::move(texture));
 	}
@@ -324,7 +324,7 @@ bool Mesh::Load(const std::filesystem::path& path)
 		}
 
 		// Face culling
-		material->SetCullMode(gltfMaterial.doubleSided ? CullMode::None : CullMode::Back);
+		material->SetCullMode(gltfMaterial.doubleSided ? VK_CULL_MODE_NONE : VK_CULL_MODE_BACK_BIT);
 
 		// PBR factors
 		const auto& pbr = gltfMaterial.pbrData;

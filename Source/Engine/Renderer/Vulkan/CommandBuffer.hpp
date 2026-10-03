@@ -1,58 +1,69 @@
 #pragma once
 
+#include "Format.hpp"
 #include "Vulkan.hpp"
-
-#include "Buffer.hpp"
 
 #include <array>
 #include <span>
 #include <string>
 #include <vector>
 
-struct ClearDepthStencil
+enum class BlendMode : uint8_t
 {
-	float    Depth   = 1.0f;
-	uint32_t Stencil = 0;
+	None = 0,
+	Alpha,
+	PremultipliedAlpha,
+	Additive,
+	Multiply
 };
 
-union ClearValue
+struct VertexLayout
 {
-	ClearColorValue   Color = { .Float32 = { 0.0f, 0.0f, 0.0f, 1.0f } };
-	ClearDepthStencil DepthStencil;
-};
+	static constexpr uint32_t MAX_ATTRIBUTES = 16;
 
-struct RenderingAttachmentInfo
-{
-	VkImageView   ImageView  = VK_NULL_HANDLE;
-	LoadOp        LoadOp     = LoadOp::Clear;
-	StoreOp       StoreOp    = StoreOp::Store;
-	ClearValue    ClearValue = {};
-	VkImageLayout Layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	struct Attribute
+	{
+		VkFormat Format = VK_FORMAT_UNDEFINED;
+		uint32_t Offset = 0;
 
-	ResolveMode   ResolveMode        = ResolveMode::None;
-	VkImageView   ResolveImageView   = VK_NULL_HANDLE;
-	VkImageLayout ResolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-};
+		bool operator==(const Attribute&) const = default;
+	};
 
-struct RenderingInfo
-{
-	std::span<const RenderingAttachmentInfo> ColorAttachments;
-	const RenderingAttachmentInfo*           DepthAttachment   = nullptr;
-	const RenderingAttachmentInfo*           StencilAttachment = nullptr;
-	ScissorRect                              RenderArea        = {};
-	uint32_t                                 LayerCount        = 1;
-	VkRenderingFlags                         Flags             = 0;
+	VertexLayout() = default;
+
+	VertexLayout(std::initializer_list<VkFormat> formats)
+	{
+		for (const VkFormat format : formats)
+			Add(format);
+	}
+
+	void Add(VkFormat format)
+	{
+		assert(Count < MAX_ATTRIBUTES);
+		assert(format != VK_FORMAT_UNDEFINED);
+
+		Attributes[Count++] = { format, Stride };
+		Stride += GetFormatBytesPerPixel(format);
+	}
+
+	std::array<Attribute, MAX_ATTRIBUTES> Attributes{};
+	uint32_t                              Count  = 0;
+	uint32_t                              Stride = 0;
+
+	bool operator==(const VertexLayout&) const = default;
 };
 
 struct StencilFaceState
 {
-	StencilOp FailOp      = StencilOp::Keep;
-	StencilOp PassOp      = StencilOp::Keep;
-	StencilOp DepthFailOp = StencilOp::Keep;
-	CompareOp Compare     = CompareOp::Always;
-	uint32_t  CompareMask = 0xFF;
-	uint32_t  WriteMask   = 0xFF;
-	uint32_t  Reference   = 0;
+	VkStencilOp FailOp      = VK_STENCIL_OP_KEEP;
+	VkStencilOp PassOp      = VK_STENCIL_OP_KEEP;
+	VkStencilOp DepthFailOp = VK_STENCIL_OP_KEEP;
+	VkCompareOp Compare     = VK_COMPARE_OP_ALWAYS;
+	uint32_t    CompareMask = 0xFF;
+	uint32_t    WriteMask   = 0xFF;
+	uint32_t    Reference   = 0;
+
+	bool operator==(const StencilFaceState&) const = default;
 };
 
 struct StencilState
@@ -60,18 +71,20 @@ struct StencilState
 	bool             Enable = false;
 	StencilFaceState Front;
 	StencilFaceState Back;
+
+	bool operator==(const StencilState&) const = default;
 };
 
 struct GraphicsState
 {
-	VertexBufferLayout VertexLayout;
+	VertexLayout VertexLayout;
 
-	Topology    PrimitiveTopology = Topology::Triangle;
-	CompareOp   DepthCompare      = CompareOp::Less;
-	BlendMode   Blending          = BlendMode::None;
-	CullMode    CullMode          = CullMode::Back;
-	WindingMode FrontFace         = WindingMode::CCW;
-	PolygonMode PolygonMode       = PolygonMode::Fill;
+	VkPrimitiveTopology PrimitiveTopology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+	VkCompareOp         DepthCompare      = VK_COMPARE_OP_LESS;
+	BlendMode           Blending          = BlendMode::None;
+	VkCullModeFlags     CullMode          = VK_CULL_MODE_BACK_BIT;
+	VkFrontFace         FrontFace         = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+	VkPolygonMode       PolygonMode       = VK_POLYGON_MODE_FILL;
 
 	StencilState Stencil;
 
@@ -80,9 +93,35 @@ struct GraphicsState
 	bool  DepthBias        = false;
 	bool  PrimitiveRestart = false;
 	float LineWidth        = 1.0f;
+
+	bool operator==(const GraphicsState&) const = default;
+};
+
+struct RenderingAttachmentInfo
+{
+	VkImageView         ImageView  = VK_NULL_HANDLE;
+	VkAttachmentLoadOp  LoadOp     = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	VkAttachmentStoreOp StoreOp    = VK_ATTACHMENT_STORE_OP_STORE;
+	VkClearValue        ClearValue = { .color = { .float32 = { 0.0f, 0.0f, 0.0f, 1.0f } } };
+	VkImageLayout       Layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+	VkResolveModeFlagBits ResolveMode        = VK_RESOLVE_MODE_NONE;
+	VkImageView           ResolveImageView   = VK_NULL_HANDLE;
+	VkImageLayout         ResolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+};
+
+struct RenderingInfo
+{
+	std::span<const RenderingAttachmentInfo> ColorAttachments;
+	const RenderingAttachmentInfo*           DepthAttachment   = nullptr;
+	const RenderingAttachmentInfo*           StencilAttachment = nullptr;
+	VkRect2D                                 RenderArea        = {};
+	uint32_t                                 LayerCount        = 1;
+	VkRenderingFlags                         Flags             = 0;
 };
 
 class CommandPool;
+class Shader;
 
 class CommandBuffer
 {
@@ -119,8 +158,10 @@ public:
 
 	// ==== Bindings ====
 
+	void BindShader(const Shader& shader);
+
 	void BindVertexBuffer(VkBuffer buffer, VkDeviceSize offset = 0, uint32_t binding = 0);
-	void BindIndexBuffer(VkBuffer buffer, IndexFormat format, VkDeviceSize offset = 0);
+	void BindIndexBuffer(VkBuffer buffer, VkIndexType indexType, VkDeviceSize offset = 0);
 
 	void PushConstants(VkPipelineLayout layout, VkShaderStageFlags stages, const void* data, uint32_t size, uint32_t offset = 0);
 	template<typename T>
@@ -131,10 +172,12 @@ public:
 
 	// ==== Dynamic state overrides ====
 
-	void SetViewport(const Viewport& viewport);
-	void SetScissor(const ScissorRect& rect);
+	// Pass a top-left-origin viewport with positive height; the Y-flip is applied here.
+	void SetViewport(const VkViewport& viewport);
+	void SetScissor(const VkRect2D& rect);
 	void SetDepthBias(float constantFactor, float slopeFactor, float clamp = 0.0f);
 	void SetBlendConstants(const std::array<float, 4>& constants);
+	void SetCullMode(VkCullModeFlags mode);
 
 	// ==== Buffer transfers ====
 
@@ -149,7 +192,7 @@ public:
 
 	// ==== Images ====
 
-	void ClearColorImage(VkImage image, VkImageLayout layout, const ClearColorValue& color, VkImageSubresourceRange range);
+	void ClearColorImage(VkImage image, VkImageLayout layout, const VkClearColorValue& color, VkImageSubresourceRange range);
 	void CopyImage(VkImage src, VkImageLayout srcLayout, VkImage dst, VkImageLayout dstLayout, const VkImageCopy2& region);
 	void BlitImage(VkImage src, VkImageLayout srcLayout, VkImage dst, VkImageLayout dstLayout, const VkImageBlit2& region, VkFilter filter = VK_FILTER_LINEAR);
 

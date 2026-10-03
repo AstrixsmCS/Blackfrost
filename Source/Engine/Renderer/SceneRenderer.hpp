@@ -22,19 +22,6 @@ struct SceneRendererCamera
 	float     FOV  = 45.0f;
 };
 
-enum class DebugView : uint32_t
-{
-	None = 0,
-	Albedo,
-	Normal,
-	Roughness,
-	Metallic,
-	AO,
-	Emissive,
-	Depth,
-	HDR,
-};
-
 struct SceneRendererSpecification
 {
 	uint32_t ViewportWidth = 0, ViewportHeight = 0; // 0 means application window size
@@ -59,7 +46,7 @@ public:
 
 	void SubmitMesh(const Mesh& mesh, const glm::mat4& transform = glm::mat4(1.0f));
 
-	const Texture& GetFinalImage() const { return m_LDRColor; }
+	const Texture& GetFinalImage() const { return m_HDRColor; } //TODO: Fix for editor
 
 	const SceneRendererSpecification& GetSpecification() const { return m_Specification; }
 
@@ -81,8 +68,7 @@ private:
 	void LightingPass();
 
 	// Post-Processing
-	void TonemapPass();
-	void CompositePass();
+	void PostPass();
 
 private:
 	SceneRendererSpecification m_Specification;
@@ -165,16 +151,11 @@ private:
 	Material m_LightingMaterial;
 	Texture  m_HDRColor;
 
-	// ==== Tonemap pass ====
+	// ==== Post pass ====
 
-	Material m_TonemapMaterial;
-	Texture  m_LDRColor; // RGBA8_UNorm, gamma-encoded (sRGB curve applied in the shader)
-	float    m_Exposure = 1.0f;
-
-	// ==== Composite pass ====
-
-	Material      m_CompositeMaterial;
-	GraphicsState m_CompositeState;
+	Material      m_PostMaterial;
+	GraphicsState m_PostState;
+	float         m_Exposure = 1.0f;
 
 	// ==== State ====
 

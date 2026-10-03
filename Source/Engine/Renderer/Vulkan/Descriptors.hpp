@@ -2,14 +2,23 @@
 
 #include "Vulkan.hpp"
 
-#include "Renderer/RendererTypes.hpp"
-
 #include <array>
 #include <cstdint>
 #include <utility>
 #include <vector>
 
 class BindlessSlot;
+
+enum class DefaultSampler : uint32_t
+{
+	LinearRepeat = 0,
+	LinearClamp,
+	NearestClamp,
+	AnisotropicRepeat,
+	ShadowCompare,
+
+	Count
+};
 
 class Descriptor
 {

@@ -2,7 +2,6 @@
 
 #include "MaterialSystem.hpp"
 
-#include "Renderer/Vulkan/Descriptors.hpp"
 #include "Renderer/Vulkan/Shader.hpp"
 
 #include <algorithm>
@@ -10,8 +9,6 @@
 #include <cassert>
 #include <cstddef>
 #include <cstring>
-
-#include "Vulkan/VulkanUtils.hpp"
 
 static constexpr VkImageAspectFlags    DEPTH_STENCIL_ASPECTS = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
 static constexpr VkPipelineStageFlags2 DEPTH_STAGES          = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
@@ -73,16 +70,16 @@ void SceneRenderer::Initialize()
 
 		m_GBufferState.VertexLayout =
 		{
-			{ ShaderDataType::Float3, "Position" },
-			{ ShaderDataType::Float3, "Normal" },
-			{ ShaderDataType::Float2, "TexCoord" },
-			{ ShaderDataType::Float4, "Tangent" },
+			VK_FORMAT_R32G32B32_SFLOAT,    // Position
+			VK_FORMAT_R32G32B32_SFLOAT,    // Normal
+			VK_FORMAT_R32G32_SFLOAT,       // TexCoord
+			VK_FORMAT_R32G32B32A32_SFLOAT, // Tangent
 		};
 
 		m_GBufferState.DepthTest    = true;
 		m_GBufferState.DepthWrite   = true;
-		m_GBufferState.DepthCompare = CompareOp::Greater; // Reversed-Z
-		m_GBufferState.CullMode     = CullMode::Back;
+		m_GBufferState.DepthCompare = VK_COMPARE_OP_GREATER; // Reversed-Z
+		m_GBufferState.CullMode     = VK_CULL_MODE_BACK_BIT;
 	}
 
 	// Lighting pass
@@ -90,18 +87,13 @@ void SceneRenderer::Initialize()
 		m_LightingMaterial.SetShader(shaders.Get("Lighting"));
 	}
 
-	// Tonemap pass
+	// Post pass: fullscreen triangle, no vertex input, no depth
 	{
-		m_TonemapMaterial.SetShader(shaders.Get("Tonemap"));
-	}
+		m_PostMaterial.SetShader(shaders.Get("Post"));
 
-	// Composite pass
-	{
-		m_CompositeMaterial.SetShader(shaders.Get("Composite"));
-
-		m_CompositeState.DepthTest  = false;
-		m_CompositeState.DepthWrite = false;
-		m_CompositeState.CullMode   = CullMode::None;
+		m_PostState.DepthTest  = false;
+		m_PostState.DepthWrite = false;
+		m_PostState.CullMode   = VK_CULL_MODE_NONE;
 	}
 
 	m_Initialized = true;
@@ -118,7 +110,6 @@ void SceneRenderer::Shutdown()
 
 	m_DrawList.clear();
 
-	m_LDRColor.Destroy();
 	m_HDRColor.Destroy();
 
 	m_GBuffer.DepthStencil.Destroy();
@@ -127,8 +118,7 @@ void SceneRenderer::Shutdown()
 	m_GBuffer.Normal.Destroy();
 	m_GBuffer.Albedo.Destroy();
 
-	m_CompositeMaterial.SetShader(nullptr);
-	m_TonemapMaterial.SetShader(nullptr);
+	m_PostMaterial.SetShader(nullptr);
 	m_LightingMaterial.SetShader(nullptr);
 	m_GBufferMaterial.SetShader(nullptr);
 
@@ -192,7 +182,7 @@ void SceneRenderer::ResizeTargets()
 	// Frames in flight may still use the old targets.
 	Renderer::WaitForGPU();
 
-	const Dimensions size = { m_ViewportWidth, m_ViewportHeight, 1 };
+	const VkExtent3D size = { m_ViewportWidth, m_ViewportHeight, 1 };
 
 	// Geometry
 	//   Albedo       RGBA8_SRGB         rgb = base color,          a = ambient occlusion (alpha is always linear)
@@ -208,30 +198,20 @@ void SceneRenderer::ResizeTargets()
 	m_GBuffer.Emissive.Destroy();
 	m_GBuffer.DepthStencil.Destroy();
 
-	m_GBuffer.Albedo.Create({ .Format = Format::RGBA8_SRGB, .Size = size, .Usage = gbufferUsage, .DebugName = "Albedo/AO" });
-	m_GBuffer.Normal.Create({ .Format = Format::RG16_UNorm, .Size = size, .Usage = gbufferUsage, .DebugName = "Normal" });
-	m_GBuffer.Material.Create({ .Format = Format::RGBA8_UNorm, .Size = size, .Usage = gbufferUsage, .DebugName = "Roughness/Metallic" });
-	m_GBuffer.Emissive.Create({ .Format = Format::RGBA16_Float, .Size = size, .Usage = gbufferUsage, .DebugName = "Emissive" });
-	m_GBuffer.DepthStencil.Create({ .Format = Format::D32_Float_S8_UInt, .Size = size, .Usage = gbufferUsage, .DebugName = "Depth/Stencil" });
+	m_GBuffer.Albedo.Create({ .Format = VK_FORMAT_R8G8B8A8_SRGB, .Size = size, .Usage = gbufferUsage, .DebugName = "Albedo/AO" });
+	m_GBuffer.Normal.Create({ .Format = VK_FORMAT_R16G16_UNORM, .Size = size, .Usage = gbufferUsage, .DebugName = "Normal" });
+	m_GBuffer.Material.Create({ .Format = VK_FORMAT_R8G8B8A8_UNORM, .Size = size, .Usage = gbufferUsage, .DebugName = "Roughness/Metallic" });
+	m_GBuffer.Emissive.Create({ .Format = VK_FORMAT_R16G16B16A16_SFLOAT, .Size = size, .Usage = gbufferUsage, .DebugName = "Emissive" });
+	m_GBuffer.DepthStencil.Create({ .Format = VK_FORMAT_D32_SFLOAT_S8_UINT, .Size = size, .Usage = gbufferUsage, .DebugName = "Depth/Stencil" });
 
 	// Lighting
 	m_HDRColor.Destroy();
 	m_HDRColor.Create(
 	{
-		.Format    = Format::RGBA16_Float,
+		.Format    = VK_FORMAT_R16G16B16A16_SFLOAT,
 		.Size      = size,
 		.Usage     = TextureUsageBits_Storage | TextureUsageBits_Attachment | TextureUsageBits_Sampled,
 		.DebugName = "HDR Color",
-	});
-
-	// Tonemap
-	m_LDRColor.Destroy();
-	m_LDRColor.Create(
-	{
-		.Format    = Format::RGBA8_UNorm,
-		.Size      = size,
-		.Usage     = TextureUsageBits_Storage | TextureUsageBits_Sampled,
-		.DebugName = "LDR Color",
 	});
 }
 
@@ -296,8 +276,7 @@ void SceneRenderer::FlushDrawList()
 		GeometryPass();
 		LightingPass();
 
-		TonemapPass();
-		CompositePass();
+		PostPass();
 	}
 	else
 	{
@@ -330,10 +309,7 @@ void SceneRenderer::GeometryPass()
 		return
 		{
 			.ImageView  = texture.GetAttachmentView(),
-			.LoadOp     = LoadOp::Clear,
-			.StoreOp    = StoreOp::Store,
-			.ClearValue = { .Color = { .Float32 = { 0.0f, 0.0f, 0.0f, 0.0f } } },
-			.Layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+			.ClearValue = { .color = { .float32 = { 0.0f, 0.0f, 0.0f, 0.0f } } },
 		};
 	};
 
@@ -348,9 +324,7 @@ void SceneRenderer::GeometryPass()
 	const RenderingAttachmentInfo depth
 	{
 		.ImageView  = m_GBuffer.DepthStencil.GetAttachmentView(),
-		.LoadOp     = LoadOp::Clear,
-		.StoreOp    = StoreOp::Store,
-		.ClearValue = { .DepthStencil = { 0.0f, 0 } }, // Reversed-Z: 0.0 is infinitely far
+		.ClearValue = { .depthStencil = { 0.0f, 0 } }, // Reversed-Z: 0.0 is infinitely far
 		.Layout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
 	};
 
@@ -358,27 +332,23 @@ void SceneRenderer::GeometryPass()
 	{
 		.ColorAttachments = { colors.data(), colors.size() },
 		.DepthAttachment  = &depth,
-		.RenderArea       = { .X = 0, .Y = 0, .Width = m_ViewportWidth, .Height = m_ViewportHeight },
+		.RenderArea       = { { 0, 0 }, { m_ViewportWidth, m_ViewportHeight } },
 	};
 
 	commandBuffer.BeginRendering(passInfo);
 	{
 		DebugLabelScope label(commandBuffer, "Geometry Pass", 0xAEC6CFFF);
 
-		shader->Bind(commandBuffer);
+		commandBuffer.BindShader(*shader);
 		commandBuffer.SetGraphicsState(m_GBufferState, static_cast<uint32_t>(colors.size()));
 
-		const VkDescriptorSet descriptorSet = Descriptor::GetSet();
-		vkCmdBindDescriptorSets(commandBuffer.GetHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, shader->GetPipelineLayout(), 0, 1, &descriptorSet, 0, nullptr);
-
-		const uint32_t           frameSlot = Renderer::GetFrameSlot();
-		const PushConstantRange& range     = shader->GetPushConstantRanges()[0];
+		const uint32_t frameSlot = Renderer::GetFrameSlot();
 
 		m_GBufferMaterial.Set("UBCamera", m_CameraBuffers[frameSlot].GetDeviceAddress());
 		m_GBufferMaterial.Set("SBMaterials", MaterialSystem::GetBuffer(frameSlot).GetDeviceAddress());
 
-		// Cull mode is per material (glTF doubleSided -> CullMode::None) only change it when it differs.
-		CullMode currentCullMode = m_GBufferState.CullMode;
+		// Cull mode is per material (glTF doubleSided -> VK_CULL_MODE_NONE) only change it when it differs.
+		VkCullModeFlags currentCullMode = m_GBufferState.CullMode;
 
 		for (const DrawCommand& drawCommand : m_DrawList)
 		{
@@ -386,7 +356,7 @@ void SceneRenderer::GeometryPass()
 			const std::vector<std::shared_ptr<Material>>& materials = mesh.GetMaterials();
 
 			commandBuffer.BindVertexBuffer(mesh.GetVertexBuffer());
-			commandBuffer.BindIndexBuffer(mesh.GetIndexBuffer(), IndexFormat::UInt32);
+			commandBuffer.BindIndexBuffer(mesh.GetIndexBuffer(), VK_INDEX_TYPE_UINT32);
 
 			for (const Submesh& submesh : mesh.GetSubmeshes())
 			{
@@ -394,19 +364,17 @@ void SceneRenderer::GeometryPass()
 
 				// Already registered in SubmitMesh so this is a lookup.
 				const uint32_t materialIndex = hasMaterial ? MaterialSystem::PrepareMaterial(materials[submesh.MaterialIndex]) : MaterialSystem::FallbackIndex;
-				const CullMode cullMode      = hasMaterial ? materials[submesh.MaterialIndex]->GetCullMode() : CullMode::Back;
+				const VkCullModeFlags cullMode = hasMaterial ? materials[submesh.MaterialIndex]->GetCullMode() : VkCullModeFlags{ VK_CULL_MODE_BACK_BIT };
 
 				if (cullMode != currentCullMode)
 				{
-					vkCmdSetCullMode(commandBuffer.GetHandle(), ToVulkan(cullMode));
+					commandBuffer.SetCullMode(cullMode);
 					currentCullMode = cullMode;
 				}
 
 				m_GBufferMaterial.Set("Model", drawCommand.Transform * submesh.Transform);
 				m_GBufferMaterial.Set("MaterialIndex", materialIndex);
-
-				const std::vector<uint8_t>& storage = m_GBufferMaterial.GetUniformStorage();
-				commandBuffer.PushConstants(shader->GetPipelineLayout(), range.StageFlags, storage.data() + range.Offset, range.Size, range.Offset);
+				m_GBufferMaterial.PushConstants(commandBuffer);
 
 				commandBuffer.DrawIndexed(submesh.IndexCount, 1, submesh.BaseIndex, static_cast<int32_t>(submesh.BaseVertex));
 			}
@@ -437,10 +405,7 @@ void SceneRenderer::LightingPass()
 
 	DebugLabelScope label(commandBuffer, "Lighting Pass", 0xFFD27FFF);
 
-	shader->Bind(commandBuffer);
-
-	const VkDescriptorSet descriptorSet = Descriptor::GetSet();
-	vkCmdBindDescriptorSets(commandBuffer.GetHandle(), VK_PIPELINE_BIND_POINT_COMPUTE, shader->GetPipelineLayout(), 0, 1, &descriptorSet, 0, nullptr);
+	commandBuffer.BindShader(*shader);
 
 	const uint32_t frameSlot = Renderer::GetFrameSlot();
 
@@ -456,55 +421,18 @@ void SceneRenderer::LightingPass()
 	m_LightingMaterial.Set("DepthIndex", m_GBuffer.DepthStencil.GetBindlessIndex());
 	m_LightingMaterial.Set("OutputIndex", m_HDRColor.GetStorageIndex());
 	m_LightingMaterial.Set("Extent", glm::uvec2(m_ViewportWidth, m_ViewportHeight));
-
-	const PushConstantRange&    range   = shader->GetPushConstantRanges()[0];
-	const std::vector<uint8_t>& storage = m_LightingMaterial.GetUniformStorage();
-	commandBuffer.PushConstants(shader->GetPipelineLayout(), range.StageFlags, storage.data() + range.Offset, range.Size, range.Offset);
+	m_LightingMaterial.PushConstants(commandBuffer);
 
 	commandBuffer.Dispatch(DivideRoundUp(m_ViewportWidth, 8), DivideRoundUp(m_ViewportHeight, 8));
 }
 
-void SceneRenderer::TonemapPass()
+void SceneRenderer::PostPass()
 {
-	CommandBuffer&                 commandBuffer = *m_CommandBuffer;
-	const std::shared_ptr<Shader>& shader        = m_TonemapMaterial.GetShader();
+	CommandBuffer&   commandBuffer = *m_CommandBuffer;
+	SwapChain&       swapChain     = Renderer::GetSwapChain();
+	const VkExtent2D extent        = swapChain.GetExtent();
 
 	commandBuffer.ImageBarrier(m_HDRColor.GetHandle(), VK_IMAGE_ASPECT_COLOR_BIT,
-		VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-		VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
-
-	commandBuffer.ImageBarrier(m_LDRColor.GetHandle(), VK_IMAGE_ASPECT_COLOR_BIT,
-		VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
-		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
-
-	DebugLabelScope label(commandBuffer, "Tonemap Pass", 0xC3A6FFFF);
-
-	shader->Bind(commandBuffer);
-
-	const VkDescriptorSet descriptorSet = Descriptor::GetSet();
-	vkCmdBindDescriptorSets(commandBuffer.GetHandle(), VK_PIPELINE_BIND_POINT_COMPUTE, shader->GetPipelineLayout(), 0, 1, &descriptorSet, 0, nullptr);
-
-	m_TonemapMaterial.Set("InputIndex", m_HDRColor.GetBindlessIndex());
-	m_TonemapMaterial.Set("OutputIndex", m_LDRColor.GetStorageIndex());
-	m_TonemapMaterial.Set("Extent", glm::uvec2(m_ViewportWidth, m_ViewportHeight));
-	m_TonemapMaterial.Set("Exposure", m_Exposure);
-
-	const PushConstantRange&    range   = shader->GetPushConstantRanges()[0];
-	const std::vector<uint8_t>& storage = m_TonemapMaterial.GetUniformStorage();
-	commandBuffer.PushConstants(shader->GetPipelineLayout(), range.StageFlags, storage.data() + range.Offset, range.Size, range.Offset);
-
-	commandBuffer.Dispatch(DivideRoundUp(m_ViewportWidth, 8), DivideRoundUp(m_ViewportHeight, 8));
-}
-
-// Copies the LDR target to the swapchain.
-void SceneRenderer::CompositePass()
-{
-	CommandBuffer&                 commandBuffer = *m_CommandBuffer;
-	const std::shared_ptr<Shader>& shader        = m_CompositeMaterial.GetShader();
-	SwapChain&                     swapChain     = Renderer::GetSwapChain();
-	const VkExtent2D               extent        = swapChain.GetExtent();
-
-	commandBuffer.ImageBarrier(m_LDRColor.GetHandle(), VK_IMAGE_ASPECT_COLOR_BIT,
 		VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 		VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT);
 
@@ -512,36 +440,24 @@ void SceneRenderer::CompositePass()
 		VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT);
 
-	const RenderingAttachmentInfo color
-	{
-		.ImageView  = swapChain.GetCurrentImageView(),
-		.LoadOp     = LoadOp::Clear,
-		.StoreOp    = StoreOp::Store,
-		.ClearValue = { .Color = { .Float32 = { 0.0f, 0.0f, 0.0f, 1.0f } } },
-		.Layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-	};
+	const RenderingAttachmentInfo color{ .ImageView = swapChain.GetCurrentImageView() };
 
 	const RenderingInfo passInfo
 	{
 		.ColorAttachments = { &color, 1 },
-		.RenderArea       = { .X = 0, .Y = 0, .Width = extent.width, .Height = extent.height },
+		.RenderArea       = { { 0, 0 }, extent },
 	};
 
 	commandBuffer.BeginRendering(passInfo);
 	{
-		DebugLabelScope label(commandBuffer, "Composite Pass", 0xB0E57CFF);
+		DebugLabelScope label(commandBuffer, "Post Pass", 0xC3A6FFFF);
 
-		shader->Bind(commandBuffer);
-		commandBuffer.SetGraphicsState(m_CompositeState, 1);
+		commandBuffer.BindShader(*m_PostMaterial.GetShader());
+		commandBuffer.SetGraphicsState(m_PostState, 1);
 
-		const VkDescriptorSet descriptorSet = Descriptor::GetSet();
-		vkCmdBindDescriptorSets(commandBuffer.GetHandle(), VK_PIPELINE_BIND_POINT_GRAPHICS, shader->GetPipelineLayout(), 0, 1, &descriptorSet, 0, nullptr);
-
-		m_CompositeMaterial.Set("InputIndex", m_LDRColor.GetBindlessIndex());
-
-		const PushConstantRange&    range   = shader->GetPushConstantRanges()[0];
-		const std::vector<uint8_t>& storage = m_CompositeMaterial.GetUniformStorage();
-		commandBuffer.PushConstants(shader->GetPipelineLayout(), range.StageFlags, storage.data() + range.Offset, range.Size, range.Offset);
+		m_PostMaterial.Set("InputIndex", m_HDRColor.GetBindlessIndex());
+		m_PostMaterial.Set("Exposure", m_Exposure);
+		m_PostMaterial.PushConstants(commandBuffer);
 
 		commandBuffer.Draw(3);
 	}
@@ -563,19 +479,12 @@ void SceneRenderer::ClearPass()
 		VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT);
 
-	const RenderingAttachmentInfo color
-	{
-		.ImageView  = swapChain.GetCurrentImageView(),
-		.LoadOp     = LoadOp::Clear,
-		.StoreOp    = StoreOp::Store,
-		.ClearValue = { .Color = { .Float32 = { 0.0f, 0.0f, 0.0f, 1.0f } } },
-		.Layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-	};
+	const RenderingAttachmentInfo color{ .ImageView = swapChain.GetCurrentImageView() };
 
 	const RenderingInfo passInfo
 	{
 		.ColorAttachments = { &color, 1 },
-		.RenderArea       = { .X = 0, .Y = 0, .Width = extent.width, .Height = extent.height },
+		.RenderArea       = { { 0, 0 }, extent },
 	};
 
 	commandBuffer.BeginRendering(passInfo);

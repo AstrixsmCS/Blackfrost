@@ -1,10 +1,11 @@
 #pragma once
 
-#include "Renderer/RendererTypes.hpp"
 #include "Vulkan.hpp"
 
 #include <filesystem>
+#include <memory>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -47,20 +48,26 @@ class CommandBuffer;
 class Shader
 {
 public:
+	Shader() = default;
+
+	Shader(const Shader&)            = delete;
+	Shader& operator=(const Shader&) = delete;
+
 	void Load(const std::filesystem::path& filePath);
 	void Shutdown();
 	void Reload();
 
 	void Bind(CommandBuffer& commandBuffer) const;
 
-	bool IsValid() const { return m_PipelineLayout != VK_NULL_HANDLE && !m_ShaderObjects.empty() && m_ShaderObjects.size() == m_ShaderStageBits.size(); }
+	bool IsValid() const { return m_PipelineLayout != VK_NULL_HANDLE && !m_ShaderObjects.empty() && m_ShaderObjects.size() == m_Stages.size(); }
 
 	const std::filesystem::path& GetPath() const { return m_Path; }
 
 	VkPipelineLayout GetPipelineLayout() const { return m_PipelineLayout; }
+	VkShaderStageFlags GetStageMask() const { return m_StageMask; }
 
 	const std::vector<VkShaderEXT>&           GetShaderObjects() const { return m_ShaderObjects; }
-	const std::vector<VkShaderStageFlagBits>& GetShaderStages() const { return m_ShaderStageBits; }
+	const std::vector<VkShaderStageFlagBits>& GetShaderStages() const { return m_Stages; }
 
 	// Reflection
 	const ShaderReflectionData&            GetReflectionData() const { return m_ReflectionData; }
@@ -74,12 +81,13 @@ private:
 	void Destroy();
 
 private:
-	std::filesystem::path    m_Path;
-	std::vector<uint32_t>    m_SpirV;
-	std::vector<ShaderStage> m_Stages;
+	std::filesystem::path m_Path;
+	std::vector<uint32_t> m_SpirV;
 
+	// m_Stages[i] is the stage of m_ShaderObjects[i].
+	std::vector<VkShaderStageFlagBits> m_Stages;
+	VkShaderStageFlags                 m_StageMask = 0;
 	std::vector<VkShaderEXT>           m_ShaderObjects;
-	std::vector<VkShaderStageFlagBits> m_ShaderStageBits;
 
 	VkPipelineLayout     m_PipelineLayout = VK_NULL_HANDLE;
 	ShaderReflectionData m_ReflectionData;

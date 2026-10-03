@@ -1,7 +1,5 @@
 #include "SwapChain.hpp"
 
-#include "VulkanUtils.hpp"
-
 #include "Context.hpp"
 
 #include <SDL3/SDL_events.h>
@@ -175,14 +173,11 @@ void SwapChain::CreateSwapchain(uint32_t* width, uint32_t* height, VkSwapchainKH
 	std::vector<VkPresentModeKHR> presentModes(presentModeCount);
 	VK_CHECK(vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, m_Surface, &presentModeCount, presentModes.data()));
 
-	PresentMode preferredPresentMode = PresentMode::Mailbox;
+	// FIFO is the only mode the spec guarantees.
+	VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
 
-	VkPresentModeKHR presentMode = ToVulkan(PresentMode::FIFO);
-
-	const VkPresentModeKHR preferred = ToVulkan(preferredPresentMode);
-
-	if (std::ranges::find(presentModes, preferred) != presentModes.end())
-		presentMode = preferred;
+	if (std::ranges::find(presentModes, VK_PRESENT_MODE_MAILBOX_KHR) != presentModes.end())
+		presentMode = VK_PRESENT_MODE_MAILBOX_KHR;
 
 	// === Extent ===
 
@@ -373,18 +368,9 @@ void SwapChain::FindImageFormatAndColorSpace()
 
 	surfaceFormats.resize(formatCount);
 
-	struct PreferredFormat
-	{
-		VkFormat VulkanFormat;
-		Format   RendererFormat;
-	};
+	constexpr VkFormat preferredFormats[] = { VK_FORMAT_B8G8R8A8_SRGB, VK_FORMAT_R8G8B8A8_SRGB };
 
-	constexpr PreferredFormat preferredFormats[] = {
-		{ VK_FORMAT_B8G8R8A8_UNORM, Format::BGRA8_UNorm },
-		{ VK_FORMAT_R8G8B8A8_UNORM, Format::RGBA8_UNorm },
-	};
-
-	for (const auto& preferred : preferredFormats)
+	for (const VkFormat preferred : preferredFormats)
 	{
 		for (const auto& available : surfaceFormats)
 		{
@@ -393,14 +379,13 @@ void SwapChain::FindImageFormatAndColorSpace()
 			if (available.colorSpace != VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
 				continue;
 
-			if (!unrestricted && available.format != preferred.VulkanFormat)
+			if (!unrestricted && available.format != preferred)
 				continue;
 
-			m_ColorFormat = preferred.VulkanFormat;
-			m_Format      = preferred.RendererFormat;
+			m_ColorFormat = preferred;
 			m_ColorSpace  = available.colorSpace;
 
-			std::println("[SwapChain] Format: {}, Color space: VK_COLOR_SPACE_SRGB_NONLINEAR_KHR", m_ColorFormat == VK_FORMAT_B8G8R8A8_UNORM ? "VK_FORMAT_B8G8R8A8_UNORM" : "VK_FORMAT_R8G8B8A8_UNORM");
+			std::println("[SwapChain] Format: {}, Color space: VK_COLOR_SPACE_SRGB_NONLINEAR_KHR", m_ColorFormat == VK_FORMAT_B8G8R8A8_SRGB ? "VK_FORMAT_B8G8R8A8_SRGB" : "VK_FORMAT_R8G8B8A8_SRGB");
 			return;
 		}
 	}

@@ -2,10 +2,9 @@
 
 #include "Vulkan.hpp"
 
-#include "Renderer/RendererTypes.hpp"
-
 #include "FrameData.hpp"
 
+#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -32,8 +31,7 @@ public:
 	uint32_t   GetHeight() const { return m_Extent.height; }
 	VkExtent2D GetExtent() const { return m_Extent; }
 	uint32_t   GetImageCount() const { return static_cast<uint32_t>(m_Images.size()); }
-	Format     GetColorFormat() const { return m_Format; }
-	VkFormat   GetVkColorFormat() const { return m_ColorFormat; }
+	VkFormat   GetColorFormat() const { return m_ColorFormat; }
 
 	VkImage     GetImage(uint32_t index) const { return m_Images[index].Image; }
 	VkImageView GetImageView(uint32_t index) const { return m_Images[index].ImageView; }
@@ -65,7 +63,6 @@ private:
 	VkSurfaceKHR   m_Surface   = VK_NULL_HANDLE;
 	VkSwapchainKHR m_SwapChain = VK_NULL_HANDLE;
 
-	Format          m_Format      = Format::Invalid;
 	VkFormat        m_ColorFormat = VK_FORMAT_UNDEFINED;
 	VkColorSpaceKHR m_ColorSpace  = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
 	VkExtent2D      m_Extent{};
